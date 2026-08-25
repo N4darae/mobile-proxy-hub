@@ -1,5 +1,8 @@
 # Open Proxy - Control your own proxy service
 
+<a href="https://trendshift.io/repositories/108758?utm_source=trendshift-badge&utm_medium=badge&utm_campaign=badge-trendshift-108758" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/108758/daily?language=Go" alt="N4darae/huawei-API | Trendshift" width="250" height="55"/></a>
+<a href="https://trendshift.io/repositories/108758?utm_source=trendshift-badge&utm_medium=badge&utm_campaign=badge-trendshift-108758" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/108758/weekly?language=Go" alt="N4darae/huawei-API | Trendshift" width="250" height="55"/></a>
+
 This repo is a proxy service you can actually sell, the same kind of product as Bright Data or
 Oxylabs. You run it yourself on 4G dongles.
 
