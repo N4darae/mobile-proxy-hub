@@ -336,6 +336,20 @@ type harnessOptions struct {
 	HoldToNewIP time.Duration
 	Policy      *Policy
 	NoRebooter  bool
+	HoldFails   error
+}
+
+type holdFailClock struct {
+	*simClock
+	hold time.Duration
+	err  error
+}
+
+func (c *holdFailClock) Sleep(ctx context.Context, d time.Duration) error {
+	if d == c.hold {
+		return c.err
+	}
+	return c.simClock.Sleep(ctx, d)
 }
 
 func testPolicy() Policy {
@@ -447,13 +461,17 @@ func newHarness(t *testing.T, o harnessOptions) *harness {
 	if !o.NoRebooter {
 		h.boot = &stubRebooter{repos: db, clock: clock}
 	}
+	var engClock domain.Clock = clock
+	if o.HoldFails != nil {
+		engClock = &holdFailClock{simClock: clock, hold: pol.HoldFor(1), err: o.HoldFails}
+	}
 	deps := Deps{
 		Repos:  db,
 		Dev:    farm.Registry(),
 		FW:     h.fw,
 		Probe:  h.probe,
 		Bus:    h.bus,
-		Clock:  clock,
+		Clock:  engClock,
 		Policy: pol,
 		NodeID: node.ID,
 		Rand:   func() float64 { return 0 },
