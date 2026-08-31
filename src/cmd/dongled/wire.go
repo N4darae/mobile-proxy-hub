@@ -10,6 +10,7 @@ import (
 	"github.com/n4darae/huawei-API/src/internal/domain"
 	"github.com/n4darae/huawei-API/src/internal/eventbus"
 	"github.com/n4darae/huawei-API/src/internal/httpapi"
+	"github.com/n4darae/huawei-API/src/internal/metrics"
 )
 
 type App struct {
@@ -20,7 +21,14 @@ type App struct {
 	Panel   *http.Server
 	Metrics *http.Server
 
+	sources []metrics.Source
 	closers []func(context.Context) error
+}
+
+func (a *App) AddMetricsSource(s metrics.Source) {
+	if s != nil {
+		a.sources = append(a.sources, s)
+	}
 }
 
 type ModuleFactory func(ctx context.Context, app *App) (httpapi.Mounter, error)
@@ -65,9 +73,11 @@ func Wire(ctx context.Context, cfg config.Config) (*App, error) {
 		Handler:           app.Router,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", metrics.Handler(app.sources...))
 	app.Metrics = &http.Server{
 		Addr:              cfg.MetricsAddr,
-		Handler:           http.NewServeMux(),
+		Handler:           metricsMux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	return app, nil
