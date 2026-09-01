@@ -137,6 +137,13 @@ func buildPanel(ctx context.Context, app *App) (httpapi.Mounter, error) {
 		}
 	}()
 
+	app.AddMetricsSource(&metricsCollector{
+		nodeID:   cfg.NodeID,
+		version:  buildVersion(),
+		repos:    db,
+		observer: engine,
+	})
+
 	return httpapi.New(httpapi.Deps{
 		NodeID:            cfg.NodeID,
 		Version:           buildVersion(),
