@@ -3,6 +3,7 @@ package linux
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -15,6 +16,8 @@ const (
 	netlinkRecvSliceTimeout = 200 * time.Millisecond
 	netlinkRecvOverallCap   = 5 * time.Second
 )
+
+var dumpBufSize = 1 << 17
 
 func dump(ctx context.Context, proto uint16, payload []byte) ([]nlMsg, error) {
 	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC, syscall.NETLINK_ROUTE)
@@ -41,10 +44,13 @@ func dump(ctx context.Context, proto uint16, payload []byte) ([]nlMsg, error) {
 	}
 	var out []nlMsg
 	for {
-		buf := make([]byte, 1<<17)
+		buf := make([]byte, dumpBufSize)
 		n, err := recvfrom(ctx, fd, buf)
 		if err != nil {
 			return nil, err
+		}
+		if n > len(buf) {
+			return nil, fmt.Errorf("%w: %d bytes into %d", netcfg.ErrTruncatedNetlink, n, len(buf))
 		}
 		if n < sizeofNlMsgHdr {
 			return nil, netcfg.ErrMalformedNetlink
@@ -77,7 +83,7 @@ func recvfrom(ctx context.Context, fd int, buf []byte) (int, error) {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		n, _, err := syscall.Recvfrom(fd, buf, 0)
+		n, _, err := syscall.Recvfrom(fd, buf, syscall.MSG_TRUNC)
 		if err == nil {
 			return n, nil
 		}
