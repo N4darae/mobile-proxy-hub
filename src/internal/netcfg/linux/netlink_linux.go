@@ -6,8 +6,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/n4darae/huawei-API/src/internal/netcfg"
+)
+
+const (
+	netlinkRecvSliceTimeout = 200 * time.Millisecond
+	netlinkRecvOverallCap   = 5 * time.Second
 )
 
 func dump(ctx context.Context, proto uint16, payload []byte) ([]nlMsg, error) {
@@ -18,6 +24,10 @@ func dump(ctx context.Context, proto uint16, payload []byte) ([]nlMsg, error) {
 	defer syscall.Close(fd)
 	lsa := &syscall.SockaddrNetlink{Family: syscall.AF_NETLINK}
 	if err := syscall.Bind(fd, lsa); err != nil {
+		return nil, err
+	}
+	tv := syscall.NsecToTimeval(netlinkRecvSliceTimeout.Nanoseconds())
+	if err := syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv); err != nil {
 		return nil, err
 	}
 	req := make([]byte, sizeofNlMsgHdr+len(payload))
@@ -32,7 +42,7 @@ func dump(ctx context.Context, proto uint16, payload []byte) ([]nlMsg, error) {
 	var out []nlMsg
 	for {
 		buf := make([]byte, 1<<17)
-		n, _, err := syscall.Recvfrom(fd, buf, 0)
+		n, err := recvfrom(ctx, fd, buf)
 		if err != nil {
 			return nil, err
 		}
@@ -59,6 +69,26 @@ func dump(ctx context.Context, proto uint16, payload []byte) ([]nlMsg, error) {
 		}
 	}
 	return out, nil
+}
+
+func recvfrom(ctx context.Context, fd int, buf []byte) (int, error) {
+	deadline := time.Now().Add(netlinkRecvOverallCap)
+	for {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		n, _, err := syscall.Recvfrom(fd, buf, 0)
+		if err == nil {
+			return n, nil
+		}
+		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK || err == syscall.EINTR {
+			if !time.Now().Before(deadline) {
+				return 0, syscall.EAGAIN
+			}
+			continue
+		}
+		return 0, err
+	}
 }
 
 func netlinkError(data []byte) error {
