@@ -10,7 +10,7 @@ import (
 	"github.com/n4darae/huawei-API/src/internal/netcfg"
 )
 
-func dump(proto uint16, payload []byte) ([]nlMsg, error) {
+func dump(ctx context.Context, proto uint16, payload []byte) ([]nlMsg, error) {
 	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC, syscall.NETLINK_ROUTE)
 	if err != nil {
 		return nil, err

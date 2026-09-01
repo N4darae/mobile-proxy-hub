@@ -183,7 +183,7 @@ func NewObserver(e netcfg.Exec) *Observer {
 func (o *Observer) Links(ctx context.Context) (map[string]netcfg.LinkState, error) {
 	payload := make([]byte, sizeofIfInfomsg)
 	payload[0] = afUnspec
-	msgs, err := dump(rtmGetLink, payload)
+	msgs, err := dump(ctx, rtmGetLink, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +250,7 @@ func (o *Observer) Links(ctx context.Context) (map[string]netcfg.LinkState, erro
 func (o *Observer) addrs(ctx context.Context) (map[int][]netip.Prefix, error) {
 	payload := make([]byte, sizeofIfAddrmsg)
 	payload[0] = afUnspec
-	msgs, err := dump(rtmGetAddr, payload)
+	msgs, err := dump(ctx, rtmGetAddr, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +305,7 @@ func (o *Observer) idPath(ctx context.Context, iface string) string {
 func (o *Observer) Rules(ctx context.Context) ([]netcfg.RuleState, error) {
 	payload := make([]byte, sizeofFibRuleHdr)
 	payload[0] = afUnspec
-	msgs, err := dump(rtmGetRule, payload)
+	msgs, err := dump(ctx, rtmGetRule, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -395,7 +395,7 @@ func tableName(t int) string {
 func (o *Observer) Routes(ctx context.Context) (map[int][]netcfg.RouteState, error) {
 	payload := make([]byte, sizeofRtMsg)
 	payload[0] = afUnspec
-	msgs, err := dump(rtmGetRoute, payload)
+	msgs, err := dump(ctx, rtmGetRoute, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +473,7 @@ func scopeName(s uint8) string {
 func (o *Observer) linkNames(ctx context.Context) (map[int]string, error) {
 	payload := make([]byte, sizeofIfInfomsg)
 	payload[0] = afUnspec
-	msgs, err := dump(rtmGetLink, payload)
+	msgs, err := dump(ctx, rtmGetLink, payload)
 	if err != nil {
 		return nil, err
 	}
