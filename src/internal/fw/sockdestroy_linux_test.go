@@ -2,6 +2,7 @@ package fw
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"testing"
@@ -15,6 +16,22 @@ func TestKillSocketsReturnsZeroForAnAddressWithNoSockets(t *testing.T) {
 	}
 	if killed != 0 {
 		t.Fatalf("want a real zero, got %d", killed)
+	}
+}
+
+func TestATruncatedDiagDumpFailsInsteadOfUndercounting(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("cannot listen: %v", err)
+	}
+	defer ln.Close()
+
+	restore := dumpBufSize
+	dumpBufSize = 64
+	t.Cleanup(func() { dumpBufSize = restore })
+
+	if _, err := CountEstablishedFrom(netip.MustParseAddr("127.0.0.1")); !errors.Is(err, ErrTruncatedNetlink) {
+		t.Fatalf("a diag dump into a 64 byte buffer returned %v, want ErrTruncatedNetlink", err)
 	}
 }
 

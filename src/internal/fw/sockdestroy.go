@@ -37,6 +37,8 @@ const (
 
 var ErrMalformedNetlink = errors.New("fw: malformed netlink message")
 
+var ErrTruncatedNetlink = errors.New("fw: netlink datagram did not fit the receive buffer")
+
 func killableStates() uint32 {
 	var mask uint32
 	for s := 1; s < tcpMaxStates; s++ {
