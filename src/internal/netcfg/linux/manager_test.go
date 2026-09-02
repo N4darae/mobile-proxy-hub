@@ -260,7 +260,8 @@ func TestOperationsOnAMissingInterfaceAreNoOps(t *testing.T) {
 	if err := m.RemoveSlot(ctx, domain.Slot(1)); err != nil {
 		t.Fatalf("RemoveSlot on a missing interface must be a no-op, got %v", err)
 	}
-	if !rec.contains("ip rule del priority 1001") || !rec.contains("ip rule del priority 1501") {
+	if !rec.contains("ip rule del from 192.168.101.100/32 lookup 1001 priority 1001") ||
+		!rec.contains("ip rule del uidrange 6101-6101 lookup 1001 priority 1501") {
 		t.Fatalf("both slot rules must be cleaned up, calls: %v", rec.calls)
 	}
 	if !rec.contains("ip route flush table 1001") {
@@ -353,5 +354,25 @@ func TestConcurrentAppliesDoNotInterleaveTheirReadModifyWrite(t *testing.T) {
 
 	if got := maxLive.Load(); got != 1 {
 		t.Fatalf("%d applies read the rule table at once, want the writes serialized", got)
+	}
+}
+
+func TestRemoveSlotLeavesAForeignRuleSharingThePriority(t *testing.T) {
+	rec := &recorder{}
+	foreign := netcfg.RuleState{
+		Priority: domain.Slot(1).RulePrioSrc(),
+		Table:    99,
+		Src:      netip.MustParsePrefix("10.7.0.0/16"),
+	}
+	m := testManager(t, rec, []netcfg.RuleState{foreign}, nil)
+
+	if err := m.RemoveSlot(context.Background(), domain.Slot(1)); err != nil {
+		t.Fatalf("RemoveSlot: %v", err)
+	}
+	if n := rec.count("ip rule del from 192.168.101.100/32 lookup 1001 priority 1001"); n != 1 {
+		t.Fatalf("the slot rule was deleted %d times, want exactly one precise delete", n)
+	}
+	if rec.contains("ip rule del priority 1001") {
+		t.Fatalf("a delete by bare priority would take the foreign rule with it, calls: %v", rec.calls)
 	}
 }
