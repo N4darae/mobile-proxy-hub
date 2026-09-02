@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/n4darae/huawei-API/src/internal/domain"
 	"github.com/n4darae/huawei-API/src/internal/netcfg"
@@ -287,5 +289,69 @@ func TestEnsureRouteTableNamesIsIdempotent(t *testing.T) {
 	}
 	if err := m.EnsureRouteTableNames(ctx); err != nil {
 		t.Fatalf("second: %v", err)
+	}
+}
+
+func TestConcurrentAppliesDoNotInterleaveTheirReadModifyWrite(t *testing.T) {
+	rec := &recorder{}
+	rules := []netcfg.RuleState{publicRule("203.0.113.7"), publicRule("203.0.113.8")}
+	links := map[string]netcfg.LinkState{
+		"dg01": {Name: "dg01", IDPath: "id-1", OperState: "up"},
+		"dg02": {Name: "dg02", IDPath: "id-2", OperState: "up"},
+	}
+
+	var live, maxLive atomic.Int32
+	readRules := func(context.Context) ([]netcfg.RuleState, error) {
+		n := live.Add(1)
+		for {
+			m := maxLive.Load()
+			if n <= m || maxLive.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		time.Sleep(2 * time.Millisecond)
+		live.Add(-1)
+		return rules, nil
+	}
+
+	dir := t.TempDir()
+	m := New(Options{
+		NetworkDir:   dir,
+		RtTablesFile: filepath.Join(dir, "rt_tables.conf"),
+		Exec:         rec.exec,
+		Slots:        []domain.Slot{domain.Slot(1), domain.Slot(2)},
+		ReadRules:    readRules,
+		ReadLinks:    func(context.Context) (map[string]netcfg.LinkState, error) { return links, nil },
+	})
+
+	hosts := []netip.Addr{netip.MustParseAddr("203.0.113.7")}
+	if err := m.EnsureGlobal(context.Background(), hosts); err != nil {
+		t.Fatalf("EnsureGlobal: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- m.EnsureGlobal(context.Background(), hosts)
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- m.RemoveSlot(context.Background(), domain.Slot(2))
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent apply: %v", err)
+		}
+	}
+
+	if got := maxLive.Load(); got != 1 {
+		t.Fatalf("%d applies read the rule table at once, want the writes serialized", got)
 	}
 }

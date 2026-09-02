@@ -42,6 +42,8 @@ type Manager struct {
 	readRules     RuleReader
 	readLinks     LinkReader
 
+	apply sync.Mutex
+
 	mu          sync.Mutex
 	publicHosts []netip.Addr
 	globalReady bool
@@ -93,6 +95,12 @@ func New(o Options) *Manager {
 }
 
 func (m *Manager) EnsureGlobal(ctx context.Context, publicHosts []netip.Addr) error {
+	m.apply.Lock()
+	defer m.apply.Unlock()
+	return m.ensureGlobal(ctx, publicHosts)
+}
+
+func (m *Manager) ensureGlobal(ctx context.Context, publicHosts []netip.Addr) error {
 	if len(publicHosts) == 0 {
 		return netcfg.ErrNoPublicHost
 	}
@@ -195,6 +203,8 @@ func (m *Manager) ApplySlot(ctx context.Context, s domain.Slot, idPath, mac stri
 	if !s.Valid() {
 		return netcfg.ErrInvalidSlot
 	}
+	m.apply.Lock()
+	defer m.apply.Unlock()
 	m.mu.Lock()
 	ready := m.globalReady
 	m.mu.Unlock()
@@ -223,7 +233,7 @@ func (m *Manager) ApplySlot(ctx context.Context, s domain.Slot, idPath, mac stri
 	hosts := append([]netip.Addr(nil), m.publicHosts...)
 	m.mu.Unlock()
 	if changed.Network && len(hosts) > 0 {
-		return m.EnsureGlobal(ctx, hosts)
+		return m.ensureGlobal(ctx, hosts)
 	}
 	return nil
 }
@@ -282,6 +292,8 @@ func (m *Manager) RemoveSlot(ctx context.Context, s domain.Slot) error {
 	if !s.Valid() {
 		return netcfg.ErrInvalidSlot
 	}
+	m.apply.Lock()
+	defer m.apply.Unlock()
 	changed, err := m.renderer.RemoveSlot(s)
 	if err != nil {
 		return err
