@@ -24,10 +24,11 @@ import (
 )
 
 type Check struct {
-	Name   string `json:"name"`
-	OK     bool   `json:"ok"`
-	Detail string `json:"detail"`
-	Fatal  bool   `json:"fatal"`
+	Name    string `json:"name"`
+	OK      bool   `json:"ok"`
+	Detail  string `json:"detail"`
+	Fatal   bool   `json:"fatal"`
+	Skipped bool   `json:"skipped,omitempty"`
 }
 
 type Report []Check
@@ -69,7 +70,10 @@ func (r Report) Text() string {
 	var b strings.Builder
 	for _, c := range r {
 		mark := "FAIL"
-		if c.OK {
+		switch {
+		case c.Skipped:
+			mark = "skip"
+		case c.OK:
 			mark = " ok "
 		}
 		tag := ""
