@@ -126,6 +126,11 @@ type PreflightOptions struct {
 	SysRoot     string
 	RtTablesDir string
 
+	SkipNetcfg   bool
+	SkipFirewall bool
+	SkipProxy    bool
+	SkipDevice   bool
+
 	UdevRuleDirs []string
 	PublicHosts  []netip.Addr
 	PanelAddr    string
@@ -218,25 +223,32 @@ const secretsBackupMaxAge = 7 * 24 * time.Hour
 func Preflight(ctx context.Context, o PreflightOptions) Report {
 	o.defaults()
 	r := Report{
-		checkBinary(o),
-		checkConntrack(o),
-		checkModemManager(ctx, o),
-		checkRtTables(o),
-		checkRpFilter(o),
-		checkIPForward(o),
-		checkRules(ctx, o),
-		checkPublicRule(ctx, o),
+		skipUnless(!o.SkipProxy, CheckBinary, "the proxy backend is simulated", func() Check { return checkBinary(o) }),
+		skipUnless(!o.SkipFirewall, CheckConntrack, "the firewall backend is simulated", func() Check { return checkConntrack(o) }),
+		skipUnless(!o.SkipDevice, CheckModemManager, "the device backend is simulated", func() Check { return checkModemManager(ctx, o) }),
+		skipUnless(!o.SkipNetcfg, CheckRtTables, "the netcfg backend is simulated", func() Check { return checkRtTables(o) }),
+		skipUnless(!o.SkipNetcfg, CheckRpFilter, "the netcfg backend is simulated", func() Check { return checkRpFilter(o) }),
+		skipUnless(!o.SkipNetcfg, CheckIPForward, "the netcfg backend is simulated", func() Check { return checkIPForward(o) }),
+		skipUnless(!o.SkipNetcfg, CheckForeignRule, "the netcfg backend is simulated", func() Check { return checkRules(ctx, o) }),
+		skipUnless(!o.SkipNetcfg, CheckPublicRule, "the netcfg backend is simulated", func() Check { return checkPublicRule(ctx, o) }),
 		checkPorts(o),
-		checkGroup(o),
-		checkNft(ctx, o),
-		checkStaticAddr(ctx, o),
-		checkKernel(o),
+		skipUnless(!o.SkipProxy, CheckGroup, "the proxy backend is simulated", func() Check { return checkGroup(o) }),
+		skipUnless(!o.SkipFirewall, CheckNftTable, "the firewall backend is simulated", func() Check { return checkNft(ctx, o) }),
+		skipUnless(!o.SkipNetcfg, CheckStaticAddr, "the netcfg backend is simulated", func() Check { return checkStaticAddr(ctx, o) }),
+		skipUnless(!o.SkipNetcfg && !o.SkipFirewall, CheckKernel, "netcfg and the firewall are both simulated", func() Check { return checkKernel(o) }),
 		checkBackup(o),
 	}
 	for i := range r {
 		r[i].Detail = strings.Join(strings.Fields(r[i].Detail), " ")
 	}
 	return r
+}
+
+func skipUnless(run bool, name, why string, check func() Check) Check {
+	if run {
+		return check()
+	}
+	return Check{Name: name, OK: true, Skipped: true, Detail: "not checked, " + why}
 }
 
 func PinPath(binDir string) string { return filepath.Join(binDir, PinFileName) }

@@ -73,11 +73,15 @@ func (c *preflightCmd) run(ctx context.Context, cfg config.Config, args []string
 
 func preflightOptions(cfg config.Config) enroll.PreflightOptions {
 	o := enroll.PreflightOptions{
-		Bin3proxy:   cfg.Bin3proxy,
-		BinDir:      cfg.BinDir,
-		BackupDir:   cfg.BackupDir,
-		PanelAddr:   cfg.PanelAddr,
-		MetricsAddr: cfg.MetricsAddr,
+		Bin3proxy:    cfg.Bin3proxy,
+		BinDir:       cfg.BinDir,
+		BackupDir:    cfg.BackupDir,
+		PanelAddr:    cfg.PanelAddr,
+		MetricsAddr:  cfg.MetricsAddr,
+		SkipNetcfg:   cfg.Netcfg == config.BackendFake,
+		SkipFirewall: cfg.Firewall == config.BackendFake,
+		SkipProxy:    cfg.Proxy == config.BackendFake,
+		SkipDevice:   cfg.Device == config.BackendSim,
 	}
 	if cfg.PublicHost.IsValid() {
 		o.PublicHosts = []netip.Addr{cfg.PublicHost}

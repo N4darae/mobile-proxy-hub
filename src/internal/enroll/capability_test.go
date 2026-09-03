@@ -471,3 +471,40 @@ func TestSysusersGivesEverySlotItsOwnUid(t *testing.T) {
 		}
 	}
 }
+
+func TestPreflightSkipsTheChecksASimulatedBackendCannotSatisfy(t *testing.T) {
+	o := PreflightOptions{
+		SkipNetcfg:   true,
+		SkipFirewall: true,
+		SkipProxy:    true,
+		SkipDevice:   true,
+	}
+	report := Preflight(context.Background(), o)
+
+	byName := map[string]Check{}
+	for _, c := range report {
+		byName[c.Name] = c
+	}
+	for _, name := range []string{
+		CheckBinary, CheckConntrack, CheckModemManager, CheckRtTables, CheckRpFilter,
+		CheckIPForward, CheckForeignRule, CheckPublicRule, CheckGroup, CheckNftTable,
+		CheckStaticAddr, CheckKernel,
+	} {
+		c, ok := byName[name]
+		if !ok {
+			t.Fatalf("%s is missing from the report", name)
+		}
+		if !c.Skipped {
+			t.Errorf("%s ran against a simulated backend: %+v", name, c)
+		}
+		if !c.OK {
+			t.Errorf("%s is skipped but still counts as a failure: %+v", name, c)
+		}
+	}
+	if c := byName[CheckPortsFree]; c.Skipped {
+		t.Error("the listener ports are real whatever the backends are")
+	}
+	if len(report.FatalFailed()) != 0 {
+		t.Errorf("a fully simulated host still has fatal failures: %v", report.FatalFailed())
+	}
+}
