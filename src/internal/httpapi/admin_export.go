@@ -84,7 +84,12 @@ func BuildExport(proxies []Proxy, scheme, format string) (string, []ExportRow, [
 
 var csvNeedsQuote = regexp.MustCompile(`[",\n]`)
 
+const csvFormulaLeaders = "=+-@\t\r"
+
 func csvCell(v string) string {
+	if v != "" && strings.ContainsAny(v[:1], csvFormulaLeaders) {
+		v = "'" + v
+	}
 	if !csvNeedsQuote.MatchString(v) {
 		return v
 	}

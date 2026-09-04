@@ -168,3 +168,25 @@ func TestExportNeedsASession(t *testing.T) {
 		t.Fatalf("returned %d", res.StatusCode)
 	}
 }
+
+func TestCsvCellDefusesSpreadsheetFormulas(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{"=1+1", "'=1+1"},
+		{"+SUM(A1)", "'+SUM(A1)"},
+		{"-2", "'-2"},
+		{"@echo", "'@echo"},
+		{"\tlead", "'\tlead"},
+		{"=HYPERLINK(\"http://x\",\"y\")", "\"'=HYPERLINK(\"\"http://x\"\",\"\"y\"\")\""},
+		{"cust_1", "cust_1"},
+		{"", ""},
+		{"a=b", "a=b"},
+		{"has,comma", "\"has,comma\""},
+	} {
+		if got := csvCell(tc.in); got != tc.want {
+			t.Errorf("csvCell(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
