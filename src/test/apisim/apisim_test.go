@@ -313,3 +313,30 @@ func TestACustomerKeyRotatesARealSimulatedDongleOverHTTP(t *testing.T) {
 	}
 	t.Logf("public ip %s -> %s, recorded as %q", before, after, rotations[0].Result)
 }
+
+func TestRotateWithoutAKeyIsRefusedAndLeavesTheDongleAlone(t *testing.T) {
+	h := newHarness(t)
+	dev := h.farm.Device(domain.Slot(1))
+	before := dev.PublicIP()
+
+	if rec := h.rotate(t, h.proxy.ID, ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("an unauthenticated rotate returned %d, want 401: %s", rec.Code, rec.Body.String())
+	}
+	if dev.PublicIP() != before {
+		t.Fatal("an unauthenticated request still cycled the data session")
+	}
+}
+
+func TestAKeyCannotRotateAProxyItDoesNotOwn(t *testing.T) {
+	h := newHarness(t)
+	dev := h.farm.Device(domain.Slot(1))
+	before := dev.PublicIP()
+
+	rec := h.rotate(t, "p-someone-else", h.secret)
+	if rec.Code != http.StatusForbidden && rec.Code != http.StatusNotFound {
+		t.Fatalf("rotating a foreign proxy returned %d, want 403 or 404: %s", rec.Code, rec.Body.String())
+	}
+	if dev.PublicIP() != before {
+		t.Fatal("a request for a foreign proxy still cycled this dongle")
+	}
+}
