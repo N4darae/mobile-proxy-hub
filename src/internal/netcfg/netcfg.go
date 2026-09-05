@@ -21,6 +21,7 @@ var (
 	ErrNoPublicHost       = errors.New("netcfg: at least one public host is required")
 	ErrBadPublicHost      = errors.New("netcfg: public host must be a specific unicast address")
 	ErrMalformedNetlink   = errors.New("netcfg: malformed netlink message")
+	ErrTruncatedNetlink   = errors.New("netcfg: netlink datagram did not fit the receive buffer")
 	ErrUnsupportedFamily  = errors.New("netcfg: unsupported address family")
 	ErrProbeDstUnroutable = errors.New("netcfg: invariant probe destination is not routable")
 )

@@ -3,6 +3,7 @@ package fw
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"syscall"
 	"time"
 )
@@ -10,6 +11,11 @@ import (
 const (
 	netlinkRecvSliceTimeout = 200 * time.Millisecond
 	netlinkRecvOverallCap   = 5 * time.Second
+)
+
+var (
+	dumpBufSize    = 1 << 17
+	requestBufSize = 1 << 16
 )
 
 type netlinkConn struct {
@@ -40,7 +46,7 @@ func (c *netlinkConn) recvfrom(ctx context.Context, buf []byte) (int, error) {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		n, _, err := syscall.Recvfrom(c.fd, buf, 0)
+		n, _, err := syscall.Recvfrom(c.fd, buf, syscall.MSG_TRUNC)
 		if err == nil {
 			return n, nil
 		}
@@ -73,10 +79,13 @@ func (c *netlinkConn) dump(ctx context.Context, kind uint16, payload []byte) ([]
 	}
 	var out [][]byte
 	for {
-		buf := make([]byte, 1<<17)
+		buf := make([]byte, dumpBufSize)
 		n, err := c.recvfrom(ctx, buf)
 		if err != nil {
 			return nil, err
+		}
+		if n > len(buf) {
+			return nil, fmt.Errorf("%w: %d bytes into %d", ErrTruncatedNetlink, n, len(buf))
 		}
 		if n < sizeofNlMsgHdr {
 			return nil, ErrMalformedNetlink
@@ -111,10 +120,13 @@ func (c *netlinkConn) request(ctx context.Context, kind uint16, payload []byte) 
 		return err
 	}
 	for {
-		buf := make([]byte, 1<<16)
+		buf := make([]byte, requestBufSize)
 		n, err := c.recvfrom(ctx, buf)
 		if err != nil {
 			return err
+		}
+		if n > len(buf) {
+			return fmt.Errorf("%w: %d bytes into %d", ErrTruncatedNetlink, n, len(buf))
 		}
 		if n < sizeofNlMsgHdr {
 			return ErrMalformedNetlink

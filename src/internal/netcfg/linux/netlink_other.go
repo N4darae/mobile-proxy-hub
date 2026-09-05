@@ -9,7 +9,7 @@ import (
 	"github.com/n4darae/huawei-API/src/internal/netcfg"
 )
 
-func dump(uint16, []byte) ([]nlMsg, error) {
+func dump(context.Context, uint16, []byte) ([]nlMsg, error) {
 	return nil, domain.UnsupportedOn("rtnetlink dumps")
 }
 

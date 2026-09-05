@@ -593,9 +593,23 @@ func rotateOnce(ctx context.Context, d device.Device, hold time.Duration, cfg co
 	}
 	started := time.Now()
 
+	dataOff := false
+	defer func() {
+		if !dataOff {
+			return
+		}
+		back, cancel := context.WithTimeout(context.Background(), cfg.Carrier.WaitConnect)
+		defer cancel()
+		if err := d.DataSwitch(back, true); err != nil {
+			fmt.Fprintf(os.Stderr, "probe: mobile data was left off and could not be switched back on: %v\n", err)
+		}
+	}()
+
 	if err := d.DataSwitch(ctx, false); err != nil {
 		return old, netip.Addr{}, 0, err
 	}
+	dataOff = true
+
 	if err := waitStatus(ctx, d, cfg, clock, func(s device.Status) bool {
 		return s.ConnectionStatus == device.ConnDisconnected
 	}); err != nil {
@@ -607,6 +621,7 @@ func rotateOnce(ctx context.Context, d device.Device, hold time.Duration, cfg co
 	if err := d.DataSwitch(ctx, true); err != nil {
 		return old, netip.Addr{}, 0, err
 	}
+	dataOff = false
 	if err := waitStatus(ctx, d, cfg, clock, func(s device.Status) bool {
 		return s.ConnectionStatus.Connected()
 	}); err != nil {

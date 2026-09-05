@@ -458,6 +458,27 @@ func TestFenceFailureAbortsTheRotationBeforeTheDataSessionIsTouched(t *testing.T
 	}
 }
 
+func TestARotationAbortedDuringTheHoldSwitchesMobileDataBackOn(t *testing.T) {
+	pol := testPolicy()
+	pol.HoldEscalate = []time.Duration{7 * time.Second}
+	pol.MaxAttempts = 1
+	h := newHarness(t, harnessOptions{HoldToNewIP: time.Second, Policy: &pol, HoldFails: context.Canceled})
+
+	op, err := h.rotate(Request{ProxyID: proxyID(1)})
+	if err != nil {
+		t.Fatalf("Rotate: %v", err)
+	}
+	if op.State != domain.OpFailed {
+		t.Fatalf("operation is %q/%q, want a failed rotation", op.State, op.Error)
+	}
+	if !h.farm.Device(1).DataOn() {
+		t.Fatalf("the aborted rotation left mobile data switched off on slot 1")
+	}
+	if res := h.result(op); res.Note == "" {
+		t.Fatalf("the restored data session left no trace in %+v", res)
+	}
+}
+
 func TestAFakeFirewallIsRecordedInTheResultInsteadOfPassingSilently(t *testing.T) {
 	h := newHarness(t, harnessOptions{HoldToNewIP: time.Second})
 	h.fw.notImpl = true

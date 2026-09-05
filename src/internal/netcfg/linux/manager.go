@@ -42,6 +42,8 @@ type Manager struct {
 	readRules     RuleReader
 	readLinks     LinkReader
 
+	apply sync.Mutex
+
 	mu          sync.Mutex
 	publicHosts []netip.Addr
 	globalReady bool
@@ -93,6 +95,12 @@ func New(o Options) *Manager {
 }
 
 func (m *Manager) EnsureGlobal(ctx context.Context, publicHosts []netip.Addr) error {
+	m.apply.Lock()
+	defer m.apply.Unlock()
+	return m.ensureGlobal(ctx, publicHosts)
+}
+
+func (m *Manager) ensureGlobal(ctx context.Context, publicHosts []netip.Addr) error {
 	if len(publicHosts) == 0 {
 		return netcfg.ErrNoPublicHost
 	}
@@ -160,6 +168,55 @@ func countRulesAt(rules []netcfg.RuleState, prio int) int {
 	return n
 }
 
+type ruleSpec struct {
+	priority int
+	matches  func(netcfg.RuleState) bool
+	delArgs  []string
+}
+
+func slotRuleSpecs(s domain.Slot) []ruleSpec {
+	table := s.RouteTable()
+	host := netip.PrefixFrom(s.HostIP(), s.HostIP().BitLen())
+	uid := s.UID()
+	prioSrc := s.RulePrioSrc()
+	prioUID := s.RulePrioUID()
+
+	return []ruleSpec{
+		{
+			priority: prioSrc,
+			matches: func(r netcfg.RuleState) bool {
+				return r.Table == table && r.Src == host
+			},
+			delArgs: []string{
+				"from", host.String(),
+				"lookup", strconv.Itoa(table),
+				"priority", strconv.Itoa(prioSrc),
+			},
+		},
+		{
+			priority: prioUID,
+			matches: func(r netcfg.RuleState) bool {
+				return r.Table == table && r.UIDRangeLo == uid && r.UIDRangeHi == uid
+			},
+			delArgs: []string{
+				"uidrange", strconv.Itoa(uid) + "-" + strconv.Itoa(uid),
+				"lookup", strconv.Itoa(table),
+				"priority", strconv.Itoa(prioUID),
+			},
+		},
+	}
+}
+
+func countMatchingRules(rules []netcfg.RuleState, spec ruleSpec) int {
+	n := 0
+	for _, r := range rules {
+		if r.Priority == spec.priority && spec.matches(r) {
+			n++
+		}
+	}
+	return n
+}
+
 func isPublicRule(r netcfg.RuleState) bool {
 	if !r.Src.IsValid() || r.Src.Bits() != r.Src.Addr().BitLen() {
 		return false
@@ -195,6 +252,8 @@ func (m *Manager) ApplySlot(ctx context.Context, s domain.Slot, idPath, mac stri
 	if !s.Valid() {
 		return netcfg.ErrInvalidSlot
 	}
+	m.apply.Lock()
+	defer m.apply.Unlock()
 	m.mu.Lock()
 	ready := m.globalReady
 	m.mu.Unlock()
@@ -223,7 +282,7 @@ func (m *Manager) ApplySlot(ctx context.Context, s domain.Slot, idPath, mac stri
 	hosts := append([]netip.Addr(nil), m.publicHosts...)
 	m.mu.Unlock()
 	if changed.Network && len(hosts) > 0 {
-		return m.EnsureGlobal(ctx, hosts)
+		return m.ensureGlobal(ctx, hosts)
 	}
 	return nil
 }
@@ -282,6 +341,8 @@ func (m *Manager) RemoveSlot(ctx context.Context, s domain.Slot) error {
 	if !s.Valid() {
 		return netcfg.ErrInvalidSlot
 	}
+	m.apply.Lock()
+	defer m.apply.Unlock()
 	changed, err := m.renderer.RemoveSlot(s)
 	if err != nil {
 		return err
@@ -295,13 +356,13 @@ func (m *Manager) RemoveSlot(ctx context.Context, s domain.Slot) error {
 	if err != nil {
 		return err
 	}
-	for _, prio := range []int{s.RulePrioSrc(), s.RulePrioUID()} {
-		n := countRulesAt(rules, prio)
+	for _, spec := range slotRuleSpecs(s) {
+		n := countMatchingRules(rules, spec)
 		if n < 1 {
 			n = 1
 		}
 		for i := 0; i < n; i++ {
-			if err := m.ruleDel(ctx, []string{"priority", strconv.Itoa(prio)}); err != nil {
+			if err := m.ruleDel(ctx, spec.delArgs); err != nil {
 				return err
 			}
 		}

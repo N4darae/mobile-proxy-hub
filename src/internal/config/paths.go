@@ -33,6 +33,13 @@ var (
 	KEKCredFile = EtcDir + "/kek.cred"
 )
 
+func (c Config) FarmMarkerPath() string {
+	if c.EtcDir == "" {
+		return FarmMarker
+	}
+	return c.EtcDir + "/FARM"
+}
+
 func ProxyUnit(user string) string {
 	return Product + "-proxy@" + user + ".service"
 }

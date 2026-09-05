@@ -19,6 +19,7 @@ import (
 	"github.com/n4darae/huawei-API/src/internal/reconcile"
 	"github.com/n4darae/huawei-API/src/internal/rotate"
 	"github.com/n4darae/huawei-API/src/internal/store"
+	"github.com/n4darae/huawei-API/src/internal/webui"
 )
 
 func init() {
@@ -52,6 +53,9 @@ func buildPanel(ctx context.Context, app *App) (httpapi.Mounter, error) {
 
 	if err := seedDevAdmin(ctx, cfg, sessions); err != nil {
 		return nil, err
+	}
+	if !webui.Built() {
+		log.Warn("the web panel bundle is not built, / serves a placeholder; run make web-install && make web, then rebuild")
 	}
 	if ok, err := sessions.HasUsers(ctx); err == nil && !ok {
 		log.Warn("no panel account exists yet, nobody can sign in; create one with " + config.Product + " passwd")
@@ -136,6 +140,13 @@ func buildPanel(ctx context.Context, app *App) (httpapi.Mounter, error) {
 			log.Error("the reconcile engine stopped", "error", err.Error())
 		}
 	}()
+
+	app.AddMetricsSource(&metricsCollector{
+		nodeID:   cfg.NodeID,
+		version:  buildVersion(),
+		repos:    db,
+		observer: engine,
+	})
 
 	return httpapi.New(httpapi.Deps{
 		NodeID:            cfg.NodeID,

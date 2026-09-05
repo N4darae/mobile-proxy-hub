@@ -3,14 +3,23 @@ package linux
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/n4darae/huawei-API/src/internal/netcfg"
 )
 
-func dump(proto uint16, payload []byte) ([]nlMsg, error) {
+const (
+	netlinkRecvSliceTimeout = 200 * time.Millisecond
+	netlinkRecvOverallCap   = 5 * time.Second
+)
+
+var dumpBufSize = 1 << 17
+
+func dump(ctx context.Context, proto uint16, payload []byte) ([]nlMsg, error) {
 	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC, syscall.NETLINK_ROUTE)
 	if err != nil {
 		return nil, err
@@ -18,6 +27,10 @@ func dump(proto uint16, payload []byte) ([]nlMsg, error) {
 	defer syscall.Close(fd)
 	lsa := &syscall.SockaddrNetlink{Family: syscall.AF_NETLINK}
 	if err := syscall.Bind(fd, lsa); err != nil {
+		return nil, err
+	}
+	tv := syscall.NsecToTimeval(netlinkRecvSliceTimeout.Nanoseconds())
+	if err := syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv); err != nil {
 		return nil, err
 	}
 	req := make([]byte, sizeofNlMsgHdr+len(payload))
@@ -31,10 +44,13 @@ func dump(proto uint16, payload []byte) ([]nlMsg, error) {
 	}
 	var out []nlMsg
 	for {
-		buf := make([]byte, 1<<17)
-		n, _, err := syscall.Recvfrom(fd, buf, 0)
+		buf := make([]byte, dumpBufSize)
+		n, err := recvfrom(ctx, fd, buf)
 		if err != nil {
 			return nil, err
+		}
+		if n > len(buf) {
+			return nil, fmt.Errorf("%w: %d bytes into %d", netcfg.ErrTruncatedNetlink, n, len(buf))
 		}
 		if n < sizeofNlMsgHdr {
 			return nil, netcfg.ErrMalformedNetlink
@@ -59,6 +75,26 @@ func dump(proto uint16, payload []byte) ([]nlMsg, error) {
 		}
 	}
 	return out, nil
+}
+
+func recvfrom(ctx context.Context, fd int, buf []byte) (int, error) {
+	deadline := time.Now().Add(netlinkRecvOverallCap)
+	for {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		n, _, err := syscall.Recvfrom(fd, buf, syscall.MSG_TRUNC)
+		if err == nil {
+			return n, nil
+		}
+		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK || err == syscall.EINTR {
+			if !time.Now().Before(deadline) {
+				return 0, syscall.EAGAIN
+			}
+			continue
+		}
+		return 0, err
+	}
 }
 
 func netlinkError(data []byte) error {

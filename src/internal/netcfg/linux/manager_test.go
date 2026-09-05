@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/n4darae/huawei-API/src/internal/domain"
 	"github.com/n4darae/huawei-API/src/internal/netcfg"
@@ -258,7 +260,8 @@ func TestOperationsOnAMissingInterfaceAreNoOps(t *testing.T) {
 	if err := m.RemoveSlot(ctx, domain.Slot(1)); err != nil {
 		t.Fatalf("RemoveSlot on a missing interface must be a no-op, got %v", err)
 	}
-	if !rec.contains("ip rule del priority 1001") || !rec.contains("ip rule del priority 1501") {
+	if !rec.contains("ip rule del from 192.168.101.100/32 lookup 1001 priority 1001") ||
+		!rec.contains("ip rule del uidrange 6101-6101 lookup 1001 priority 1501") {
 		t.Fatalf("both slot rules must be cleaned up, calls: %v", rec.calls)
 	}
 	if !rec.contains("ip route flush table 1001") {
@@ -287,5 +290,89 @@ func TestEnsureRouteTableNamesIsIdempotent(t *testing.T) {
 	}
 	if err := m.EnsureRouteTableNames(ctx); err != nil {
 		t.Fatalf("second: %v", err)
+	}
+}
+
+func TestConcurrentAppliesDoNotInterleaveTheirReadModifyWrite(t *testing.T) {
+	rec := &recorder{}
+	rules := []netcfg.RuleState{publicRule("203.0.113.7"), publicRule("203.0.113.8")}
+	links := map[string]netcfg.LinkState{
+		"dg01": {Name: "dg01", IDPath: "id-1", OperState: "up"},
+		"dg02": {Name: "dg02", IDPath: "id-2", OperState: "up"},
+	}
+
+	var live, maxLive atomic.Int32
+	readRules := func(context.Context) ([]netcfg.RuleState, error) {
+		n := live.Add(1)
+		for {
+			m := maxLive.Load()
+			if n <= m || maxLive.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		time.Sleep(2 * time.Millisecond)
+		live.Add(-1)
+		return rules, nil
+	}
+
+	dir := t.TempDir()
+	m := New(Options{
+		NetworkDir:   dir,
+		RtTablesFile: filepath.Join(dir, "rt_tables.conf"),
+		Exec:         rec.exec,
+		Slots:        []domain.Slot{domain.Slot(1), domain.Slot(2)},
+		ReadRules:    readRules,
+		ReadLinks:    func(context.Context) (map[string]netcfg.LinkState, error) { return links, nil },
+	})
+
+	hosts := []netip.Addr{netip.MustParseAddr("203.0.113.7")}
+	if err := m.EnsureGlobal(context.Background(), hosts); err != nil {
+		t.Fatalf("EnsureGlobal: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- m.EnsureGlobal(context.Background(), hosts)
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- m.RemoveSlot(context.Background(), domain.Slot(2))
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent apply: %v", err)
+		}
+	}
+
+	if got := maxLive.Load(); got != 1 {
+		t.Fatalf("%d applies read the rule table at once, want the writes serialized", got)
+	}
+}
+
+func TestRemoveSlotLeavesAForeignRuleSharingThePriority(t *testing.T) {
+	rec := &recorder{}
+	foreign := netcfg.RuleState{
+		Priority: domain.Slot(1).RulePrioSrc(),
+		Table:    99,
+		Src:      netip.MustParsePrefix("10.7.0.0/16"),
+	}
+	m := testManager(t, rec, []netcfg.RuleState{foreign}, nil)
+
+	if err := m.RemoveSlot(context.Background(), domain.Slot(1)); err != nil {
+		t.Fatalf("RemoveSlot: %v", err)
+	}
+	if n := rec.count("ip rule del from 192.168.101.100/32 lookup 1001 priority 1001"); n != 1 {
+		t.Fatalf("the slot rule was deleted %d times, want exactly one precise delete", n)
+	}
+	if rec.contains("ip rule del priority 1001") {
+		t.Fatalf("a delete by bare priority would take the foreign rule with it, calls: %v", rec.calls)
 	}
 }

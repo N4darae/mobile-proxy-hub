@@ -181,7 +181,7 @@ func buildPlan(cfg config.Config, root, source string) ([]action, error) {
 		})
 	}
 
-	plan = append(plan, action{Path: at(config.FarmMarker), What: "marks this host as the farm; enroll refuses without it", Mode: "0644", body: []byte("farm\n"), mode: 0o644})
+	plan = append(plan, action{Path: at(cfg.FarmMarkerPath()), What: "marks this host as the farm; enroll refuses without it", Mode: "0644", body: []byte("farm\n"), mode: 0o644})
 
 	for i := range plan {
 		plan[i].Change = needsChange(plan[i])

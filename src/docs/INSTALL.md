@@ -351,8 +351,14 @@ hardware. Only one variable is required:
   address, but for local development it does not need to be real or reachable.
 
 The fake network-config backend and the simulated farm are already the defaults, and the state
-directories default to a writable per-platform location, so nothing else has to be set. Override any
-of these when you want to:
+directories default to a writable per-platform location, so nothing else has to be set.
+
+On a **Linux** development box the defaults are the production paths instead — `/etc/dongled` and
+`/var/lib/dongled` — because the same binary serves the farm role there. Point `DONGLED_ETC_DIR` and
+`DONGLED_DB` at a scratch directory, otherwise `bootstrap-kek` and `serve` need root to write under
+`/etc` and `/var/lib`.
+
+Override any of these when you want to:
 
 - `DONGLED_ETC_DIR` — the directory this instance uses for the state production keeps under
   `/etc/dongled`. Point it at a scratch directory when you want several instances side by side.

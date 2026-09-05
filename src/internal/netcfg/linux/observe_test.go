@@ -3,6 +3,7 @@ package linux
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net/netip"
 	"runtime"
 	"testing"
@@ -164,6 +165,32 @@ func TestLinkAndRuleDumpsWorkAgainstTheRunningKernel(t *testing.T) {
 	}
 	if len(routes) == 0 {
 		t.Fatal("route dump returned nothing")
+	}
+}
+
+func TestDumpsRefuseACancelledContextInsteadOfBlocking(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("rtnetlink dumps need a linux kernel")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	o := NewObserver(nil)
+	for name, call := range map[string]func() error{
+		"Links":  func() error { _, err := o.Links(ctx); return err },
+		"Rules":  func() error { _, err := o.Rules(ctx); return err },
+		"Routes": func() error { _, err := o.Routes(ctx); return err },
+	} {
+		done := make(chan error, 1)
+		go func() { done <- call() }()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("%s on a cancelled context returned %v, want context.Canceled", name, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Errorf("%s ignored the cancelled context and blocked", name)
+		}
 	}
 }
 

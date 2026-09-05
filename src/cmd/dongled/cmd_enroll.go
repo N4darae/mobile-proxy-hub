@@ -75,7 +75,7 @@ func (c *enrollCmd) run(ctx context.Context, cfg config.Config, args []string) e
 	if c.slot != 0 && !domain.Slot(c.slot).Valid() {
 		return fmt.Errorf("enroll: slot %d is outside 1-%d", c.slot, domain.MaxSlots)
 	}
-	if err := requireFarmHost(c.force); err != nil {
+	if err := requireFarmHost(cfg, c.force); err != nil {
 		return err
 	}
 	if !cfg.PublicHost.IsValid() {
@@ -223,14 +223,15 @@ func printEnrollSummary(cfg config.Config, res *enroll.Result) {
 	fmt.Printf("\nLabel the physical port %q and plug in the next dongle.\n", res.USBPath)
 }
 
-func requireFarmHost(force bool) error {
+func requireFarmHost(cfg config.Config, force bool) error {
 	if force {
 		return nil
 	}
-	if _, err := os.Stat(config.FarmMarker); err == nil {
+	marker := cfg.FarmMarkerPath()
+	if _, err := os.Stat(marker); err == nil {
 		return nil
 	}
-	return fmt.Errorf("%w: %s is absent. This command rewrites ip rules, systemd-networkd files and nft sets in the root network namespace. Create the marker on the real farm host, or pass --force if you are certain", errNotFarmHost, config.FarmMarker)
+	return fmt.Errorf("%w: %s is absent. This command rewrites ip rules, systemd-networkd files and nft sets in the root network namespace. Create the marker on the real farm host, or pass --force if you are certain", errNotFarmHost, marker)
 }
 
 func buildNetcfg(cfg config.Config) (netcfg.Manager, error) {

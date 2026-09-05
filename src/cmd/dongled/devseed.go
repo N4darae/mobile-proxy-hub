@@ -13,7 +13,7 @@ import (
 
 const (
 	devSeedUser     = "admin"
-	devSeedPassword = "admin"
+	devSeedPassword = "admin-dev"
 )
 
 func seedDevAdmin(ctx context.Context, cfg config.Config, sessions *auth.Sessions) error {
@@ -31,7 +31,7 @@ const devSeedBanner = `
 ################################################################################
 #  DEVELOPMENT SEED IS ACTIVE                                                  #
 #                                                                              #
-#  A panel account admin / admin now exists and anyone who can reach this      #
+#  A panel account admin / admin-dev now exists and anyone who can reach this  #
 #  listener owns the whole farm: every proxy password, every customer, every   #
 #  SIM. This build carries the "dev" tag; never run it on the farm host and    #
 #  never expose this listener beyond 127.0.0.1.                                #

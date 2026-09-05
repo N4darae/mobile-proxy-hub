@@ -542,19 +542,29 @@ func (e *Engine) execute(ctx context.Context, op *domain.Operation, t target) re
 
 var errFenceFailed = errors.New("rotate: the interface could not be fenced")
 
-func (e *Engine) cycle(ctx context.Context, op *domain.Operation, dev device.Device, guard *fenceGuard, slot domain.Slot, hold time.Duration) (int, string, error) {
+func (e *Engine) cycle(ctx context.Context, op *domain.Operation, dev device.Device, guard *fenceGuard, slot domain.Slot, hold time.Duration) (killed int, note string, err error) {
 	e.step(ctx, op, domain.StepFence)
-	if err := guard.fence(ctx); err != nil {
-		return 0, "", fmt.Errorf("%w: %v", errFenceFailed, err)
+	if ferr := guard.fence(ctx); ferr != nil {
+		return 0, "", fmt.Errorf("%w: %v", errFenceFailed, ferr)
 	}
 	killed, kerr := e.deps.FW.KillSockets(ctx, slot.HostIP())
-	flushed, ferr := e.deps.FW.FlushConntrack(ctx, slot.HostIP())
-	note := fenceNote(kerr, ferr, flushed)
+	flushed, cerr := e.deps.FW.FlushConntrack(ctx, slot.HostIP())
+	note = fenceNote(kerr, cerr, flushed)
+
+	dataOff := false
+	defer func() {
+		if !dataOff {
+			return
+		}
+		note = joinNote(note, e.restoreDataSession(dev))
+	}()
 
 	e.step(ctx, op, domain.StepDataOff)
 	if err := dev.DataSwitch(ctx, false); err != nil {
 		return killed, note, err
 	}
+	dataOff = true
+
 	if err := e.pollConn(ctx, dev, device.ConnDisconnected, minDuration(e.pol.WaitConnect, waitDisconnectCap)); err != nil {
 		if !errors.Is(err, errPollTimeout) {
 			return killed, note, err
@@ -571,6 +581,7 @@ func (e *Engine) cycle(ctx context.Context, op *domain.Operation, dev device.Dev
 	if err := dev.DataSwitch(ctx, true); err != nil {
 		return killed, note, err
 	}
+	dataOff = false
 
 	e.step(ctx, op, domain.StepWaitConnect)
 	if err := e.pollConn(ctx, dev, device.ConnConnected, e.pol.WaitConnect); err != nil {
@@ -582,6 +593,15 @@ func (e *Engine) cycle(ctx context.Context, op *domain.Operation, dev device.Dev
 		return killed, note, err
 	}
 	return killed, note, nil
+}
+
+func (e *Engine) restoreDataSession(dev device.Device) string {
+	back, cancel := context.WithTimeout(context.Background(), e.pol.WaitConnect)
+	defer cancel()
+	if err := dev.DataSwitch(back, true); err != nil {
+		return "the aborted rotation left mobile data off and switching it back on failed: " + err.Error()
+	}
+	return "mobile data was switched back on after the rotation aborted"
 }
 
 func (e *Engine) pollConn(ctx context.Context, dev device.Device, want device.ConnStatus, budget time.Duration) error {
